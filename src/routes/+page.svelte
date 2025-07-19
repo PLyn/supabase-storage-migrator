@@ -1,21 +1,39 @@
-<script>
-	import { createClient } from '@supabase/supabase-js';
+<script lang="ts">
+	import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 	import JSZip from 'jszip';
 
+	// Types
+	interface LogEntry {
+		message: string;
+		type: 'info' | 'success' | 'error' | 'warning';
+		timestamp: string;
+	}
+
+	interface FileInfo {
+		path: string;
+		file: JSZip.JSZipObject;
+	}
+
+	interface BucketFiles {
+		[bucketName: string]: FileInfo[];
+	}
+
+	type ActiveTab = 'live' | 'zip';
+
 	// State
-	let activeTab = $state('live');
+	let activeTab = $state<ActiveTab>('live');
 	let oldProjectUrl = $state('');
 	let oldProjectKey = $state('');
 	let newProjectUrl = $state('');
 	let newProjectKey = $state('');
-	let uploadedZip = $state(null);
+	let uploadedZip = $state<File | null>(null);
 	let isProcessing = $state(false);
 	let progress = $state(0);
 	let totalItems = $state(0);
-	let logs = $state([]);
+	let logs = $state<LogEntry[]>([]);
 	let error = $state('');
 	let success = $state('');
-	let detectedBuckets = $state([]);
+	let detectedBuckets = $state<string[]>([]);
 	let currentOperation = $state('');
 
 	// Derived state
@@ -30,7 +48,7 @@
 	);
 
 	// Helper functions
-	function addLog(message, type = 'info') {
+	function addLog(message: string, type: LogEntry['type'] = 'info'): void {
 		logs = [...logs, { 
 			message, 
 			type, 
@@ -46,7 +64,7 @@
 		}, 10);
 	}
 
-	function clearLogs() {
+	function clearLogs(): void {
 		logs = [];
 		error = '';
 		success = '';
@@ -55,36 +73,64 @@
 		currentOperation = '';
 	}
 
-	function setActiveTab(tab) {
+	function setActiveTab(tab: ActiveTab): void {
 		activeTab = tab;
 		clearLogs();
 	}
 
-	async function handleZipUpload(event) {
-		const file = event.target.files[0];
+	async function detectBucketsInZip(file: File): Promise<string[]> {
+		try {
+			const zip = new JSZip();
+			const contents = await zip.loadAsync(file);
+			const buckets = new Set<string>();
+			
+			// Look for the actual bucket structure
+			// The structure should be: root_folder/bucket_name/files...
+			Object.keys(contents.files).forEach(path => {
+				const parts = path.split('/').filter(p => p.length > 0);
+				
+				// If we have at least 2 parts and the file is not in the root
+				if (parts.length >= 2 && !contents.files[path].dir) {
+					// Skip the root folder (project id) and get the actual bucket name
+					buckets.add(parts[0]); // This will be the root folder
+					
+					// Try to detect the actual bucket structure
+					// In your case, it seems the structure is: project_id/bucket_name/files
+					if (parts.length >= 3) {
+						buckets.add(parts[1]); // This should be the actual bucket name
+					}
+				}
+			});
+			
+			// Filter out what looks like project IDs (long alphanumeric strings)
+			const filteredBuckets = Array.from(buckets).filter(name => {
+				// Exclude names that look like project IDs (long random strings)
+				return !(/^[a-z0-9]{20,}$/.test(name));
+			});
+			
+			return filteredBuckets.length > 0 ? filteredBuckets : Array.from(buckets);
+		} catch (err) {
+			console.error('Error detecting buckets:', err);
+			return [];
+		}
+	}
+
+	async function handleZipUpload(event: Event): Promise<void> {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		
 		if (file && file.name.endsWith('.zip')) {
 			uploadedZip = file;
 			addLog(`ZIP file selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`, 'info');
 			
-			// Preview ZIP contents
-			try {
-				const zip = new JSZip();
-				const contents = await zip.loadAsync(file);
-				const buckets = new Set();
-				
-				Object.keys(contents.files).forEach(path => {
-					const parts = path.split('/');
-					if (parts.length > 1 && parts[0]) {
-						buckets.add(parts[0]);
-					}
-				});
-				
-				detectedBuckets = Array.from(buckets);
-				if (detectedBuckets.length > 0) {
-					addLog(`Detected ${detectedBuckets.length} bucket(s) in ZIP: ${detectedBuckets.join(', ')}`, 'info');
-				}
-			} catch (err) {
-				addLog('Could not preview ZIP contents', 'warning');
+			// Preview ZIP contents and detect buckets
+			const buckets = await detectBucketsInZip(file);
+			detectedBuckets = buckets;
+			
+			if (buckets.length > 0) {
+				addLog(`Detected ${buckets.length} bucket(s): ${buckets.join(', ')}`, 'info');
+			} else {
+				addLog('Could not detect bucket structure. Will attempt to parse during migration.', 'warning');
 			}
 		} else {
 			error = 'Please select a valid ZIP file';
@@ -92,9 +138,9 @@
 		}
 	}
 
-	function getMimeType(filename) {
-		const ext = filename.split('.').pop().toLowerCase();
-		const mimeTypes = {
+	function getMimeType(filename: string): string {
+		const ext = filename.split('.').pop()?.toLowerCase() || '';
+		const mimeTypes: Record<string, string> = {
 			// Images
 			'jpg': 'image/jpeg',
 			'jpeg': 'image/jpeg',
@@ -144,7 +190,7 @@
 		return mimeTypes[ext] || 'application/octet-stream';
 	}
 
-	async function migrateLiveProject() {
+	async function migrateLiveProject(): Promise<void> {
 		clearLogs();
 		isProcessing = true;
 		currentOperation = 'Migrating from live project';
@@ -198,14 +244,19 @@
 
 			success = `Migration completed! Processed ${buckets.length} bucket(s) with ${progress} total files.`;
 		} catch (err) {
-			error = err.message;
-			addLog(`Migration failed: ${err.message}`, 'error');
+			error = err instanceof Error ? err.message : 'Unknown error occurred';
+			addLog(`Migration failed: ${error}`, 'error');
 		} finally {
 			isProcessing = false;
 		}
 	}
 
-	async function migrateFilesFromBucket(oldClient, newClient, bucketName, path = '') {
+	async function migrateFilesFromBucket(
+		oldClient: SupabaseClient,
+		newClient: SupabaseClient,
+		bucketName: string,
+		path: string = ''
+	): Promise<void> {
 		try {
 			const { data: files, error: listError } = await oldClient.storage
 				.from(bucketName)
@@ -256,7 +307,8 @@
 						progress += 1;
 						addLog(`✓ Migrated: ${filePath}`, 'success');
 					} catch (err) {
-						addLog(`✗ Failed: ${filePath} - ${err.message}`, 'error');
+						const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+						addLog(`✗ Failed: ${filePath} - ${errorMessage}`, 'error');
 					}
 				} else {
 					// It's a folder, recurse
@@ -264,11 +316,80 @@
 				}
 			}
 		} catch (err) {
-			addLog(`Error listing files in ${bucketName}/${path}: ${err.message}`, 'error');
+			const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+			addLog(`Error listing files in ${bucketName}/${path}: ${errorMessage}`, 'error');
 		}
 	}
 
-	async function migrateFromZip() {
+	async function parseZipStructure(zip: JSZip): Promise<BucketFiles> {
+		const bucketFiles: BucketFiles = {};
+		const entries = Object.entries(zip.files);
+		
+		// First, try to detect the root structure
+		let rootFolder: string | null = null;
+		const rootCandidates = new Set<string>();
+		
+		entries.forEach(([path, file]) => {
+			if (!file.dir) {
+				const parts = path.split('/').filter(p => p.length > 0);
+				if (parts.length > 0) {
+					rootCandidates.add(parts[0]);
+				}
+			}
+		});
+		
+		// If there's only one root folder and it looks like a project ID, use it
+		if (rootCandidates.size === 1) {
+			const candidate = Array.from(rootCandidates)[0];
+			if (/^[a-z0-9]{20,}$/.test(candidate)) {
+				rootFolder = candidate;
+				addLog(`Detected root folder (project ID): ${rootFolder}`, 'info');
+			}
+		}
+		
+		// Parse files into bucket structure
+		entries.forEach(([path, file]) => {
+			if (!file.dir) {
+				const parts = path.split('/').filter(p => p.length > 0);
+				
+				let bucketName: string;
+				let relativePath: string;
+				
+				if (rootFolder && parts[0] === rootFolder) {
+					// Structure: project_id/bucket_name/path/to/file
+					if (parts.length >= 3) {
+						bucketName = parts[1];
+						relativePath = parts.slice(2).join('/');
+					} else {
+						// Skip files directly in root folder
+						return;
+					}
+				} else if (parts.length >= 2) {
+					// Structure: bucket_name/path/to/file
+					bucketName = parts[0];
+					relativePath = parts.slice(1).join('/');
+				} else {
+					// Skip files in root
+					return;
+				}
+				
+				if (!bucketFiles[bucketName]) {
+					bucketFiles[bucketName] = [];
+				}
+				
+				bucketFiles[bucketName].push({
+					path: relativePath,
+					file: file
+				});
+			}
+		});
+		
+		return bucketFiles;
+	}
+
+	async function migrateFromZip(): Promise<void> {
+		if (!uploadedZip) return;
+		
 		clearLogs();
 		isProcessing = true;
 		currentOperation = 'Migrating from ZIP file';
@@ -281,35 +402,15 @@
 			const zip = new JSZip();
 			const contents = await zip.loadAsync(uploadedZip);
 
-			// Group files by bucket
-			const bucketFiles = {};
-			const fileEntries = Object.entries(contents.files);
-			
-			fileEntries.forEach(([path, file]) => {
-				if (!file.dir) {
-					const parts = path.split('/');
-					if (parts.length > 1) {
-						const bucketName = parts[0];
-						const relativePath = parts.slice(1).join('/');
-						
-						if (!bucketFiles[bucketName]) {
-							bucketFiles[bucketName] = [];
-						}
-						
-						bucketFiles[bucketName].push({
-							path: relativePath,
-							file: file
-						});
-					}
-				}
-			});
-
+			// Parse ZIP structure
+			const bucketFiles = await parseZipStructure(contents);
 			const buckets = Object.keys(bucketFiles);
+			
 			if (buckets.length === 0) {
 				throw new Error('No valid bucket structure found in ZIP file');
 			}
 
-			addLog(`Found ${buckets.length} bucket(s) in ZIP: ${buckets.join(', ')}`, 'info');
+			addLog(`Found ${buckets.length} bucket(s): ${buckets.join(', ')}`, 'info');
 			
 			// Count total files
 			totalItems = Object.values(bucketFiles).reduce((sum, files) => sum + files.length, 0);
@@ -336,8 +437,9 @@
 						
 						addLog(`✓ Created bucket: ${bucketName}`, 'success');
 					} catch (err) {
-						if (!err.message.includes('already exists')) {
-							addLog(`✗ Failed to create bucket ${bucketName}: ${err.message}`, 'error');
+						const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+						if (!errorMessage.includes('already exists')) {
+							addLog(`✗ Failed to create bucket ${bucketName}: ${errorMessage}`, 'error');
 							continue;
 						}
 					}
@@ -350,19 +452,6 @@
 						const blob = new Blob([arrayBuffer], { 
 							type: getMimeType(fileInfo.path) 
 						});
-
-						// Check if file exists (optional skip)
-						const { data: existingFile } = await newClient.storage
-							.from(bucketName)
-							.list(fileInfo.path.split('/').slice(0, -1).join('/'), {
-								search: fileInfo.path.split('/').pop()
-							});
-
-						if (existingFile && existingFile.length > 0) {
-							addLog(`Skipping existing: ${fileInfo.path}`, 'warning');
-							progress += 1;
-							continue;
-						}
 
 						const { error: uploadError } = await newClient.storage
 							.from(bucketName)
@@ -378,7 +467,8 @@
 						progress += 1;
 						addLog(`✓ Uploaded: ${bucketName}/${fileInfo.path}`, 'success');
 					} catch (err) {
-						addLog(`✗ Failed: ${bucketName}/${fileInfo.path} - ${err.message}`, 'error');
+						const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+						addLog(`✗ Failed: ${bucketName}/${fileInfo.path} - ${errorMessage}`, 'error');
 						progress += 1;
 					}
 				}
@@ -386,8 +476,8 @@
 
 			success = `Migration completed! Uploaded ${progress} out of ${totalItems} files.`;
 		} catch (err) {
-			error = err.message;
-			addLog(`Migration failed: ${err.message}`, 'error');
+			error = err instanceof Error ? err.message : 'Unknown error occurred';
+			addLog(`Migration failed: ${error}`, 'error');
 		} finally {
 			isProcessing = false;
 		}
@@ -479,7 +569,8 @@
 					{:else}
 						<p class="help-text">
 							ZIP file should contain bucket folders with your storage files.<br>
-							Structure: bucket_name/path/to/file.ext
+							Expected structure: project_id/bucket_name/path/to/file.ext<br>
+							or: bucket_name/path/to/file.ext
 						</p>
 					{/if}
 				</div>
