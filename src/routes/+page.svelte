@@ -486,7 +486,7 @@
 
 <div class="container">
 	<h1>Supabase Storage Migrator</h1>
-	<p class="subtitle">Migrate storage objects between Supabase projects</p>
+	<p class="subtitle">Migrate storage objects to a new Supabase project</p>
 
 	<div class="tabs">
 		<button 
@@ -527,7 +527,7 @@
 						bind:value={oldProjectKey}
 						disabled={isProcessing}
 					/>
-					<p class="help-text">Found in Settings → API → service_role key</p>
+					<p class="help-text">Found in Settings → API Keys → service_role key</p>
 				</div>
 			</div>
 		</div>
@@ -600,7 +600,7 @@
 				bind:value={newProjectKey}
 				disabled={isProcessing}
 			/>
-			<p class="help-text">Found in Settings → API → service_role key</p>
+			<p class="help-text">Found in Settings → API Keys → service_role key</p>
 		</div>
 	</div>
 
