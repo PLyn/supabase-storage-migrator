@@ -49,12 +49,12 @@
 
 	// Helper functions
 	function addLog(message: string, type: LogEntry['type'] = 'info'): void {
-		logs = [...logs, { 
-			message, 
-			type, 
-			timestamp: new Date().toLocaleTimeString() 
+		logs = [...logs, {
+			message,
+			type,
+			timestamp: new Date().toLocaleTimeString()
 		}];
-		
+
 		// Auto-scroll to bottom
 		setTimeout(() => {
 			const logContainer = document.querySelector('.log-container');
@@ -83,17 +83,17 @@
 			const zip = new JSZip();
 			const contents = await zip.loadAsync(file);
 			const buckets = new Set<string>();
-			
+
 			// Look for the actual bucket structure
 			// The structure should be: root_folder/bucket_name/files...
 			Object.keys(contents.files).forEach(path => {
 				const parts = path.split('/').filter(p => p.length > 0);
-				
+
 				// If we have at least 2 parts and the file is not in the root
 				if (parts.length >= 2 && !contents.files[path].dir) {
 					// Skip the root folder (project id) and get the actual bucket name
 					buckets.add(parts[0]); // This will be the root folder
-					
+
 					// Try to detect the actual bucket structure
 					// In your case, it seems the structure is: project_id/bucket_name/files
 					if (parts.length >= 3) {
@@ -101,13 +101,13 @@
 					}
 				}
 			});
-			
+
 			// Filter out what looks like project IDs (long alphanumeric strings)
 			const filteredBuckets = Array.from(buckets).filter(name => {
 				// Exclude names that look like project IDs (long random strings)
-				return !(/^[a-z0-9]{20,}$/.test(name));
+				return !/^[a-z0-9]{20,}$/.test(name);
 			});
-			
+
 			return filteredBuckets.length > 0 ? filteredBuckets : Array.from(buckets);
 		} catch (err) {
 			console.error('Error detecting buckets:', err);
@@ -118,15 +118,15 @@
 	async function handleZipUpload(event: Event): Promise<void> {
 		const input = event.target as HTMLInputElement;
 		const file = input.files?.[0];
-		
+
 		if (file && file.name.endsWith('.zip')) {
 			uploadedZip = file;
 			addLog(`ZIP file selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`, 'info');
-			
+
 			// Preview ZIP contents and detect buckets
 			const buckets = await detectBucketsInZip(file);
 			detectedBuckets = buckets;
-			
+
 			if (buckets.length > 0) {
 				addLog(`Detected ${buckets.length} bucket(s): ${buckets.join(', ')}`, 'info');
 			} else {
@@ -149,7 +149,7 @@
 			'webp': 'image/webp',
 			'svg': 'image/svg+xml',
 			'ico': 'image/x-icon',
-			
+
 			// Documents
 			'pdf': 'application/pdf',
 			'doc': 'application/msword',
@@ -158,7 +158,7 @@
 			'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 			'ppt': 'application/vnd.ms-powerpoint',
 			'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-			
+
 			// Text
 			'txt': 'text/plain',
 			'csv': 'text/csv',
@@ -167,14 +167,14 @@
 			'html': 'text/html',
 			'css': 'text/css',
 			'js': 'application/javascript',
-			
+
 			// Archives
 			'zip': 'application/zip',
 			'rar': 'application/x-rar-compressed',
 			'7z': 'application/x-7z-compressed',
 			'tar': 'application/x-tar',
 			'gz': 'application/gzip',
-			
+
 			// Media
 			'mp3': 'audio/mpeg',
 			'wav': 'audio/wav',
@@ -182,11 +182,11 @@
 			'avi': 'video/x-msvideo',
 			'mov': 'video/quicktime',
 			'webm': 'video/webm',
-			
+
 			// Other
 			'bin': 'application/octet-stream'
 		};
-		
+
 		return mimeTypes[ext] || 'application/octet-stream';
 	}
 
@@ -197,14 +197,14 @@
 
 		try {
 			addLog('Initializing Supabase clients...', 'info');
-			
+
 			const oldClient = createClient(oldProjectUrl, oldProjectKey);
 			const newClient = createClient(newProjectUrl, newProjectKey);
 
 			// List buckets from source project
 			addLog('Fetching buckets from source project...', 'info');
 			const { data: buckets, error: bucketsError } = await oldClient.storage.listBuckets();
-			
+
 			if (bucketsError) {
 				throw new Error(`Failed to list buckets: ${bucketsError.message}`);
 			}
@@ -219,18 +219,18 @@
 
 			for (const bucket of buckets) {
 				addLog(`\nProcessing bucket: ${bucket.name}`, 'info');
-				
+
 				// Create bucket in destination if it doesn't exist
 				try {
 					const { error: createError } = await newClient.storage.createBucket(
 						bucket.name,
 						{ public: bucket.public }
 					);
-					
+
 					if (createError && !createError.message.includes('already exists')) {
 						throw createError;
 					}
-					
+
 					if (!createError) {
 						addLog(`✓ Created bucket: ${bucket.name}`, 'success');
 					}
@@ -282,7 +282,7 @@
 					// It's a file, download and upload
 					try {
 						addLog(`Downloading: ${filePath}`, 'info');
-						
+
 						const { data: fileData, error: downloadError } = await oldClient.storage
 							.from(bucketName)
 							.download(filePath);
@@ -292,7 +292,7 @@
 						}
 
 						addLog(`Uploading: ${filePath}`, 'info');
-						
+
 						const { error: uploadError } = await newClient.storage
 							.from(bucketName)
 							.upload(filePath, fileData, {
@@ -324,11 +324,11 @@
 	async function parseZipStructure(zip: JSZip): Promise<BucketFiles> {
 		const bucketFiles: BucketFiles = {};
 		const entries = Object.entries(zip.files);
-		
+
 		// First, try to detect the root structure
 		let rootFolder: string | null = null;
 		const rootCandidates = new Set<string>();
-		
+
 		entries.forEach(([path, file]) => {
 			if (!file.dir) {
 				const parts = path.split('/').filter(p => p.length > 0);
@@ -337,7 +337,7 @@
 				}
 			}
 		});
-		
+
 		// If there's only one root folder and it looks like a project ID, use it
 		if (rootCandidates.size === 1) {
 			const candidate = Array.from(rootCandidates)[0];
@@ -346,15 +346,15 @@
 				addLog(`Detected root folder (project ID): ${rootFolder}`, 'info');
 			}
 		}
-		
+
 		// Parse files into bucket structure
 		entries.forEach(([path, file]) => {
 			if (!file.dir) {
 				const parts = path.split('/').filter(p => p.length > 0);
-				
+
 				let bucketName: string;
 				let relativePath: string;
-				
+
 				if (rootFolder && parts[0] === rootFolder) {
 					// Structure: project_id/bucket_name/path/to/file
 					if (parts.length >= 3) {
@@ -372,24 +372,24 @@
 					// Skip files in root
 					return;
 				}
-				
+
 				if (!bucketFiles[bucketName]) {
 					bucketFiles[bucketName] = [];
 				}
-				
+
 				bucketFiles[bucketName].push({
 					path: relativePath,
 					file: file
 				});
 			}
 		});
-		
+
 		return bucketFiles;
 	}
 
 	async function migrateFromZip(): Promise<void> {
 		if (!uploadedZip) return;
-		
+
 		clearLogs();
 		isProcessing = true;
 		currentOperation = 'Migrating from ZIP file';
@@ -405,13 +405,13 @@
 			// Parse ZIP structure
 			const bucketFiles = await parseZipStructure(contents);
 			const buckets = Object.keys(bucketFiles);
-			
+
 			if (buckets.length === 0) {
 				throw new Error('No valid bucket structure found in ZIP file');
 			}
 
 			addLog(`Found ${buckets.length} bucket(s): ${buckets.join(', ')}`, 'info');
-			
+
 			// Count total files
 			totalItems = Object.values(bucketFiles).reduce((sum, files) => sum + files.length, 0);
 			addLog(`Total files to upload: ${totalItems}`, 'info');
@@ -422,7 +422,7 @@
 
 			for (const [bucketName, files] of Object.entries(bucketFiles)) {
 				addLog(`\nProcessing bucket: ${bucketName}`, 'info');
-				
+
 				// Create bucket if it doesn't exist
 				if (!existingBucketNames.includes(bucketName)) {
 					try {
@@ -430,11 +430,11 @@
 							bucketName,
 							{ public: false } // Default to private
 						);
-						
+
 						if (createError) {
 							throw createError;
 						}
-						
+
 						addLog(`✓ Created bucket: ${bucketName}`, 'success');
 					} catch (err) {
 						const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -449,8 +449,8 @@
 				for (const fileInfo of files) {
 					try {
 						const arrayBuffer = await fileInfo.file.async('arraybuffer');
-						const blob = new Blob([arrayBuffer], { 
-							type: getMimeType(fileInfo.path) 
+						const blob = new Blob([arrayBuffer], {
+							type: getMimeType(fileInfo.path)
 						});
 
 						const { error: uploadError } = await newClient.storage
@@ -489,13 +489,13 @@
 	<p class="subtitle">Migrate storage objects to a new Supabase project</p>
 
 	<div class="tabs">
-		<button 
+		<button
 			class="tab {activeTab === 'live' ? 'active' : ''}"
 			onclick={() => setActiveTab('live')}
 		>
 			Live Project Migration
 		</button>
-		<button 
+		<button
 			class="tab {activeTab === 'zip' ? 'active' : ''}"
 			onclick={() => setActiveTab('zip')}
 		>
@@ -516,18 +516,29 @@
 						bind:value={oldProjectUrl}
 						disabled={isProcessing}
 					/>
-					<p class="help-text">The URL of your source Supabase project</p>
+					<p class="help-text">
+						Get your Supabase project URL from the <a
+							href="https://supabase.com/dashboard/project/_/settings/api"
+							target="_blank"
+							rel="noopener noreferrer">Data API settings</a
+						> in the Supabase dashboard.
+					</p>
 				</div>
 				<div class="form-group">
 					<label for="old-key">Service Role Key</label>
 					<input
 						id="old-key"
 						type="password"
-						placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 						bind:value={oldProjectKey}
 						disabled={isProcessing}
 					/>
-					<p class="help-text">Found in Settings → API Keys → service_role key</p>
+					<p class="help-text">
+						Get the key from the <a
+							href="https://supabase.com/dashboard/project/_/settings/api-keys"
+							target="_blank"
+							rel="noopener noreferrer">API keys page</a
+						> in the Supabase dashboard
+					</p>
 				</div>
 			</div>
 		</div>
@@ -549,10 +560,12 @@
 					{#if uploadedZip}
 						<div class="file-info">
 							<div class="file-info-item">
-								<strong>File:</strong> {uploadedZip.name}
+								<strong>File:</strong>
+								{uploadedZip.name}
 							</div>
 							<div class="file-info-item">
-								<strong>Size:</strong> {(uploadedZip.size / 1024 / 1024).toFixed(2)} MB
+								<strong>Size:</strong>
+								{(uploadedZip.size / 1024 / 1024).toFixed(2)} MB
 							</div>
 							{#if detectedBuckets.length > 0}
 								<div class="bucket-list">
@@ -568,8 +581,8 @@
 						</div>
 					{:else}
 						<p class="help-text">
-							ZIP file should contain bucket folders with your storage files.<br>
-							Expected structure: project_id/bucket_name/path/to/file.ext<br>
+							ZIP file should contain bucket folders with your storage files.<br />
+							Expected structure: project_id/bucket_name/path/to/file.ext<br />
 							or: bucket_name/path/to/file.ext
 						</p>
 					{/if}
@@ -589,36 +602,39 @@
 				bind:value={newProjectUrl}
 				disabled={isProcessing}
 			/>
-			<p class="help-text">The URL of your destination Supabase project</p>
+			<p class="help-text">
+				Get your Supabase project URL from the <a
+					href="https://supabase.com/dashboard/project/_/settings/api"
+					target="_blank"
+					rel="noopener noreferrer">Data API settings</a
+				> in the Supabase dashboard.
+			</p>
 		</div>
 		<div class="form-group">
 			<label for="new-key">Service Role Key</label>
 			<input
 				id="new-key"
 				type="password"
-				placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 				bind:value={newProjectKey}
 				disabled={isProcessing}
 			/>
-			<p class="help-text">Found in Settings → API Keys → service_role key</p>
+			<p class="help-text">
+				Get the key from the <a
+					href="https://supabase.com/dashboard/project/_/settings/api-keys"
+					target="_blank"
+					rel="noopener noreferrer">API keys page</a
+				> in the Supabase dashboard
+			</p>
 		</div>
 	</div>
 
 	<div class="button-group">
 		{#if activeTab === 'live'}
-			<button
-				class="primary-button"
-				onclick={migrateLiveProject}
-				disabled={!canMigrateLive}
-			>
+			<button class="primary-button" onclick={migrateLiveProject} disabled={!canMigrateLive}>
 				{isProcessing ? 'Migrating...' : 'Start Live Migration'}
 			</button>
 		{:else}
-			<button
-				class="primary-button"
-				onclick={migrateFromZip}
-				disabled={!canMigrateFromZip}
-			>
+			<button class="primary-button" onclick={migrateFromZip} disabled={!canMigrateFromZip}>
 				{isProcessing ? 'Uploading...' : 'Start ZIP Migration'}
 			</button>
 		{/if}
@@ -627,7 +643,7 @@
 	{#if error}
 		<div class="error-message">⚠️ {error}</div>
 	{/if}
-	
+
 	{#if success}
 		<div class="success-message">✅ {success}</div>
 	{/if}
@@ -642,12 +658,13 @@
 					<div class="progress-bar" style="width: {progressPercentage}%"></div>
 				</div>
 			{/if}
-			
+
 			{#if logs.length > 0}
 				<div class="log-container">
 					{#each logs as log}
 						<div class="log-entry log-{log.type}">
-							<span style="opacity: 0.6">[{log.timestamp}]</span> {log.message}
+							<span style="opacity: 0.6">[{log.timestamp}]</span>
+							{log.message}
 						</div>
 					{/each}
 				</div>
@@ -675,7 +692,7 @@
 	h1 {
 		font-size: 2.5rem;
 		margin-bottom: 10px;
-		background: linear-gradient(135deg, #3ECF8E, #38BDF8);
+		background: linear-gradient(135deg, #3ecf8e, #38bdf8);
 		-webkit-background-clip: text;
 		-webkit-text-fill-color: transparent;
 		background-clip: text;
@@ -711,7 +728,7 @@
 	}
 
 	.tab.active {
-		color: #3ECF8E;
+		color: #3ecf8e;
 	}
 
 	.tab.active::after {
@@ -721,7 +738,7 @@
 		left: 0;
 		right: 0;
 		height: 2px;
-		background: #3ECF8E;
+		background: #3ecf8e;
 	}
 
 	.tab-content {
@@ -739,7 +756,7 @@
 	.form-section h2 {
 		font-size: 1.3rem;
 		margin-bottom: 20px;
-		color: #3ECF8E;
+		color: #3ecf8e;
 	}
 
 	.form-group {
@@ -753,8 +770,9 @@
 		font-weight: 500;
 	}
 
-	input[type="text"],
-	input[type="password"] {
+	input[type='text'],
+	input[type='password'] {
+		box-sizing: border-box; /* This is the fix */
 		width: 100%;
 		padding: 12px 16px;
 		background: #1a1a1a;
@@ -765,14 +783,14 @@
 		transition: all 0.2s;
 	}
 
-	input[type="text"]:focus,
-	input[type="password"]:focus {
+	input[type='text']:focus,
+	input[type='password']:focus {
 		outline: none;
-		border-color: #3ECF8E;
+		border-color: #3ecf8e;
 		background: #222;
 	}
 
-	input[type="file"] {
+	input[type='file'] {
 		display: none;
 	}
 
@@ -791,12 +809,12 @@
 	}
 
 	.file-input-label:hover {
-		border-color: #3ECF8E;
-		color: #3ECF8E;
+		border-color: #3ecf8e;
+		color: #3ecf8e;
 	}
 
 	.file-input-label.has-file {
-		border-color: #3ECF8E;
+		border-color: #3ecf8e;
 		background: #1a3a2a;
 	}
 
@@ -838,7 +856,7 @@
 	.bucket-icon {
 		width: 20px;
 		height: 20px;
-		background: #3ECF8E;
+		background: #3ecf8e;
 		border-radius: 4px;
 		display: flex;
 		align-items: center;
@@ -867,7 +885,7 @@
 	}
 
 	.primary-button {
-		background: linear-gradient(135deg, #3ECF8E, #38BDF8);
+		background: linear-gradient(135deg, #3ecf8e, #38bdf8);
 		color: white;
 	}
 
@@ -900,7 +918,7 @@
 
 	.progress-bar {
 		height: 100%;
-		background: linear-gradient(90deg, #3ECF8E, #38BDF8);
+		background: linear-gradient(90deg, #3ecf8e, #38bdf8);
 		transition: width 0.3s ease;
 		border-radius: 4px;
 	}
@@ -929,7 +947,7 @@
 	}
 
 	.log-success {
-		color: #3ECF8E;
+		color: #3ecf8e;
 	}
 
 	.log-error {
@@ -966,8 +984,18 @@
 
 	.help-text {
 		font-size: 13px;
-		color: #666;
+		color: #888;
 		margin-top: 8px;
+	}
+
+	.help-text a {
+		color: #9ca3af;
+		text-decoration: underline;
+		transition: color 0.2s;
+	}
+
+	.help-text a:hover {
+		color: #3ecf8e;
 	}
 
 	:global(::-webkit-scrollbar) {
